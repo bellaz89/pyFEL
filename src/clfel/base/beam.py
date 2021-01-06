@@ -1,10 +1,13 @@
 '''
     Beam module.
 '''
-from clctx import CLCtx
+from .clctx import cl_ctx, cl_queue
 import pyopencl as cl
 import numpy as np
 
+from clfel.util.init_class import init_class
+
+@init_class
 class Beam(object):
     '''
         Beam class, a collection of slices.
@@ -194,18 +197,95 @@ class Beam(object):
                     }
                 }
 
+                // Dense linear transformation of the beam. The result is new_state = M*state
+                __kernel void linear_optic_dense(__global double* theta,
+                                                 __global double* gamma,
+                                                 __global double* x,
+                                                 __global double* y,
+                                                 __global double* px,
+                                                 __global double* py,
+                                                 __constant double* transfer_matrix) {
+                    
+                    const ulong gid = get_global_id(0);
+                    double state[6], new_state[6];
+                    
+                    state[0] = x[gid];
+                    state[1] = px[gid];
+                    state[2] = y[gid];
+                    state[3] = py[gid];
+                    state[4] = theta[gid];
+                    state[5] = gamma[gid];
+
+                    for(uint i = 0; i < 6; i++) {
+                        new_state[i] = 0.0;
+                        
+                        for(uint j = 0; j < 6; i++) {
+                            new_state[i] += transfer_matrix[i + j*6] * state[j];
+                        }
+                    }
+
+                    x[gid]     = state[0];
+                    px[gid]    = state[1];
+                    y[gid]     = state[2];
+                    py[gid]    = state[3];
+                    theta[gid] = state[4];
+                    gamma[gid] = state[5];
+                }
+
+                #define SPARSE_LOAD_X       0x00000001
+                #define SPARSE_LOAD_PX      0x00000002
+                #define SPARSE_LOAD_Y       0x00000004
+                #define SPARSE_LOAD_PY      0x00000008
+                #define SPARSE_LOAD_THETA   0x00000010
+                #define SPARSE_LOAD_GAMMA   0x00000020
+                #define SPARSE_SAVE_X       0x00000040
+                #define SPARSE_SAVE_PX      0x00000080
+                #define SPARSE_SAVE_Y       0x00000100
+                #define SPARSE_SAVE_PY      0x00000200
+                #define SPARSE_SAVE_THETA   0x00000400
+                #define SPARSE_SAVE_GAMMA   0x00000800
+
+
+                // Sparse linear transformation of the beam.
+                __kernel void linear_optic_(__global double* theta,
+                                            __global double* gamma,
+                                            __global double* x,
+                                            __global double* y,
+                                            __global double* px,
+                                            __global double* py,
+                                            __constant double* transfer_matrix,
+                                            __constant uint2* indices,
+                                            const uint transfer_matrix_size,
+                                            const uint flags){
+
+                    const ulong gid = get_global_id(0);
+                    double state[6], new_state[6];
+
+                    if(flags & SPARSE_LOAD_X)     state[0] = x[gid];
+                    if(flags & SPARSE_LOAD_PX)    state[1] = px[gid];
+                    if(flags & SPARSE_LOAD_Y)     state[2] = y[gid];
+                    if(flags & SPARSE_LOAD_PY)    state[3] = py[gid];
+                    if(flags & SPARSE_LOAD_THETA) state[4] = theta[gid];
+                    if(flags & SPARSE_LOAD_GAMMA) state[5] = gamma[gid];
+
+                    for(uint i = 0; i < 6; i++) {
+                        new_state[i] = 0.0;
+                    }
+
+                    for(uint i = 0; i < transfer_matrix_size; i++){
+                        uint2 index = indices[i]; 
+                        new_state[index.y] += transfer_matrix[i] * state[index.x];
+                    }
+
+                    if(flags & SPARSE_SAVE_X)     x[gid]     = new_state[0];
+                    if(flags & SPARSE_SAVE_PX)    px[gid]    = new_state[1];
+                    if(flags & SPARSE_SAVE_Y)     y[gid]     = new_state[2];
+                    if(flags & SPARSE_SAVE_PY)    py[gid]    = new_state[3];
+                    if(flags & SPARSE_SAVE_THETA) theta[gid] = new_state[4];
+                    if(flags & SPARSE_SAVE_GAMMA) gamma[gid] = new_state[5];
+                }
+                
                 '''
-    initialized = False
-
-    @classmethod
-    def initialize(cls):
-        '''
-            Compile kernels
-        '''
-        ctx = CLCtx.ctx
-        cls.program = cl.Program(ctx, cls.KERNEL).build()
-
-        initialized = True
 
     def __init__(self, beam_array):
         '''
@@ -218,8 +298,6 @@ class Beam(object):
         self.len = beam_array.shape[0]
         self.events = []
 
-        ctx = CLCtx.ctx
-
         if beam_array.dtype != np.float64:
             beam_array = beam_array.astype(np.float64)
 
@@ -228,22 +306,22 @@ class Beam(object):
 
         mf = cl.mem_flags
         
-        self.theta = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
+        self.theta = cl.Buffer(cl_ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
                                 hostbuf=beam_array[:, 0])
 
-        self.gamma = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
+        self.gamma = cl.Buffer(cl_ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
                                 hostbuf=beam_array[:, 1])
 
-        self.x = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
+        self.x = cl.Buffer(cl_ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
                                 hostbuf=beam_array[:, 2])
 
-        self.y = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
+        self.y = cl.Buffer(cl_ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
                                 hostbuf=beam_array[:, 3])
 
-        self.px = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
+        self.px = cl.Buffer(cl_ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
                                 hostbuf=beam_array[:, 4])
 
-        self.py = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
+        self.py = cl.Buffer(cl_ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, 
                                 hostbuf=beam_array[:, 5])
        
     def wait(self):
@@ -258,43 +336,42 @@ class Beam(object):
         '''
             Returns the beam as numpy array (see the constructor for the order)
         '''
-        queue = CLCtx.queue
-        
         self.wait()
-        
+       
         if beam_range:
-            if beam_range[1] < 0:
-                beam_range[1] += self.len + 1
+            beam_range = list(beam_range)
+            if beam_range[1] <= 0:
+                beam_range[1] += self.len
 
             arr_len = beam_range[1] - beam_range[0]
             beam_array = np.empty((arr_len, 6), dtype=np.float64, order="F")
             
-            self.events.append(cl.enqueue_copy(queue, 
+            self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[:, 0], 
                                                self.theta,
                                                device_offset=beam_range[0]*8))
 
-            self.events.append(cl.enqueue_copy(queue, 
+            self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[:, 1], 
                                                self.gamma,
                                                device_offset=beam_range[0]*8)) 
 
-            self.events.append(cl.enqueue_copy(queue, 
+            self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[:, 2], 
                                                self.x,
                                                device_offset=beam_range[0]*8))
 
-            self.events.append(cl.enqueue_copy(queue, 
+            self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[:, 3], 
                                                self.y,
                                                device_offset=beam_range[0]*8))
 
-            self.events.append(cl.enqueue_copy(queue, 
+            self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[:, 4], 
                                                self.px,
                                                device_offset=beam_range[0]*8))
 
-            self.events.append(cl.enqueue_copy(queue, 
+            self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[:, 5], 
                                                self.py,
                                                device_offset=beam_range[0]*8)) 
@@ -302,12 +379,12 @@ class Beam(object):
             return beam_array
         else:
             beam_array = np.empty((self.len, 6), dtype=np.float64, order="F")
-            self.events.append(cl.enqueue_copy(queue, beam_array[:, 0], self.theta))
-            self.events.append(cl.enqueue_copy(queue, beam_array[:, 1], self.gamma)) 
-            self.events.append(cl.enqueue_copy(queue, beam_array[:, 2], self.x))    
-            self.events.append(cl.enqueue_copy(queue, beam_array[:, 3], self.y))   
-            self.events.append(cl.enqueue_copy(queue, beam_array[:, 4], self.px))   
-            self.events.append(cl.enqueue_copy(queue, beam_array[:, 5], self.py)) 
+            self.events.append(cl.enqueue_copy(cl_queue, beam_array[:, 0], self.theta))
+            self.events.append(cl.enqueue_copy(cl_queue, beam_array[:, 1], self.gamma)) 
+            self.events.append(cl.enqueue_copy(cl_queue, beam_array[:, 2], self.x))    
+            self.events.append(cl.enqueue_copy(cl_queue, beam_array[:, 3], self.y))   
+            self.events.append(cl.enqueue_copy(cl_queue, beam_array[:, 4], self.px))   
+            self.events.append(cl.enqueue_copy(cl_queue, beam_array[:, 5], self.py)) 
         
             return beam_array
 
@@ -321,6 +398,7 @@ class Beam(object):
         '''
             Merge new particles in the beam.
         '''
+        
         new_len = self.len
         for i in range(len(beam_arrays)):
             beam_array = beam_arrays[i]
@@ -338,29 +416,29 @@ class Beam(object):
         self.resize(new_len)
 
         for beam_array in beam_arrays:
-            offset = self.len * 8
-            self.len += beam.array.shape[0]
-            self.events.append(cl.enqueue_copy(queue, self.theta, 
+            offset = self.len*8
+            self.len += beam_array.shape[0]
+            self.events.append(cl.enqueue_copy(cl_queue, self.theta, 
                                                beam_array[:, 0], 
                                                device_offset=offset))
 
-            self.events.append(cl.enqueue_copy(queue, self.gamma, 
+            self.events.append(cl.enqueue_copy(cl_queue, self.gamma, 
                                                beam_array[:, 1],
                                                device_offset=offset))
             
-            self.events.append(cl.enqueue_copy(queue, self.x, 
+            self.events.append(cl.enqueue_copy(cl_queue, self.x, 
                                                beam_array[:, 2],
                                                device_offset=offset))
 
-            self.events.append(cl.enqueue_copy(queue, self.y, 
+            self.events.append(cl.enqueue_copy(cl_queue, self.y, 
                                                beam_array[:, 3],
                                                device_offset=offset))
 
-            self.events.append(cl.enqueue_copy(queue, self.px, 
+            self.events.append(cl.enqueue_copy(cl_queue, self.px, 
                                                beam_array[:, 4],
                                                device_offset=offset))
 
-            self.events.append(cl.enqueue_copy(queue, self.py, 
+            self.events.append(cl.enqueue_copy(cl_queue, self.py, 
                                                beam_array[:, 5],
                                                device_offset=offset))
 
@@ -372,24 +450,35 @@ class Beam(object):
         if size < self.len:
             self.len = size
         elif size > self.size:
-            ctx = CLCtx.ctx
-            queue = CLCtx.queue
             mf = cl.mem_flags
-            theta = cl.Buffer(ctx, mf.READ_WRITE, size=size*8)
-            gamma = cl.Buffer(ctx, mf.READ_WRITE, size=size*8)
-            x = cl.Buffer(ctx, mf.READ_WRITE, size=size*8)
-            y = cl.Buffer(ctx, mf.READ_WRITE, size=size*8)
-            px = cl.Buffer(ctx, mf.READ_WRITE, size=size*8)
-            py = cl.Buffer(ctx, mf.READ_WRITE, size=size*8)
+            theta = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
+            gamma = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
+            x = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
+            y = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
+            px = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
+            py = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
        
             self.wait()
-            self.events.append(cl.enqueue_copy(queue, theta, self.theta))
-            self.events.append(cl.enqueue_copy(queue, gamma, self.gamma))
-            self.events.append(cl.enqueue_copy(queue, x, self.x))
-            self.events.append(cl.enqueue_copy(queue, y, self.y))
-            self.events.append(cl.enqueue_copy(queue, px, self.px))
-            self.events.append(cl.enqueue_copy(queue, py, self.py))
+            self.events.append(cl.enqueue_copy(cl_queue, theta, self.theta))
+            self.events.append(cl.enqueue_copy(cl_queue, gamma, self.gamma))
+            self.events.append(cl.enqueue_copy(cl_queue, x, self.x))
+            self.events.append(cl.enqueue_copy(cl_queue, y, self.y))
+            self.events.append(cl.enqueue_copy(cl_queue, px, self.px))
+            self.events.append(cl.enqueue_copy(cl_queue, py, self.py))
+
+            self.theta = theta
+            self.gamma = gamma
+            self.x = x
+            self.y = y
+            self.px = px
+            self.py = py
 
             self.size = size
 
-Beam.initialize()    
+    @classmethod
+    def initialize(cls):
+        '''
+            Compile kernels
+        '''
+        cls.program = cl.Program(cl_ctx, cls.KERNEL).build()
+

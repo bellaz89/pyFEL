@@ -2,9 +2,11 @@
     Implementation of the Hammersley low discrepancy sequence
 '''
 
-import numpy as np
-from numba import int64
+import numba
+from numba import int64, objmode
 from numba.experimental import jitclass
+import numpy as np
+from scipy.special import erfcinv
 
 spec = [
     ('base', int64),
@@ -23,9 +25,9 @@ class Hammersley(object):
         self.base = int64(PRIME_VECTOR[prime_idx])
         self.idx = int64(0)
 
-    def set(self, new_idx):
+    def set_idx(self, new_idx):
         '''
-            Set a new sequence idx
+            Skip the sequence to 'new_idx'
         '''
         if new_idx < 0:
             self.idx = 0
@@ -49,6 +51,31 @@ class Hammersley(object):
             i2 = i1
             if i2 <= 0:
                 return xs
+
+    def get_array(self, n):
+        '''
+            Get a numpy 1D array with length 'n'
+        '''
+        sequence = np.empty(n, dtype=np.float64)
+        for i in range(n):
+            sequence[i] = self.get_value()
+
+        return sequence
+
+    def get_normal_array(self, n):
+        '''
+            Get a normal distribuited 1D array with length 'n'
+        '''
+
+        x = self.get_array(n)*2.0
+        y = np.zeros_like(x)
+
+        # The JIT has to be disabled because erfcinv is not recognized
+        # by Numba
+        with objmode(y='double[:]'):
+            y = erfcinv(x)
+
+        return y
 
 PRIME_VECTOR = np.array([
     2,    3,    5,    7,   11,   13,   17,   19,   23,   29, 
