@@ -40,7 +40,7 @@ def test_random_access():
         hammer = Hammersley(prime_idx)
         h1 = hammer.get_array(SIZE)
         for i in range(TESTS):
-            idx = randint(0, SIZE)
+            idx = randint(0, SIZE-1)
             hammer.set_idx(idx)
             assert hammer.get_value() == h1[idx]
 

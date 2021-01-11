@@ -28,7 +28,7 @@ def test_random_access():
         random = Random(prime_idx)
         r1 = random.get_array(SIZE)
         for i in range(TESTS):
-            idx = randint(0, SIZE)
+            idx = randint(0, SIZE-1)
             random.set_idx(idx)
             assert random.get_value() == r1[idx]
 
