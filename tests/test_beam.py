@@ -20,10 +20,10 @@ def get_random_beam(size, long_distrib=(0.0, 1.0), seed=None):
     if not seed:
         seed=SEED
     random = Random(seed)
-    theta = (random.get_array(size).reshape((size,1))*(long_distrib[1] - long_distrib[0]) +
+    theta = (random.get_array(size).reshape((1, size))*(long_distrib[1] - long_distrib[0]) +
              long_distrib[1])
     beam = random.get_normal_array(5*size).reshape((5, size))
-    beam = np.vstack((beam[:3, :], theta, beam[4, :]))
+    beam = np.vstack((beam[:4, :], theta, beam[4, :]))
     return Beam(beam), beam
 
 def test_creation():

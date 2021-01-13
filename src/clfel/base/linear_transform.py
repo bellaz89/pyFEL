@@ -31,62 +31,65 @@ class LinearTransform(BeamTransform):
 
     KERNEL = '''
                 // Dense linear transformation of the beam. The result is new_state = M*state
-                __kernel void linear_optic_dense(__global double* theta,
-                                                 __global double* gamma,
-                                                 __global double* x,
-                                                 __global double* y,
+                __kernel void linear_optic_dense(__global double* x,
                                                  __global double* px,
+                                                 __global double* y,
                                                  __global double* py,
+                                                 __global double* theta,
+                                                 __global double* gamma,
                                                  __constant double* transfer_matrix) {
                     
                     const ulong gid = get_global_id(0);
                     double state[6];
                     double new_state[6];
 
-                    state[0] = theta[gid];
-                    state[1] = gamma[gid];
-                    state[2] = x[gid];
-                    state[3] = y[gid];
-                    state[4] = px[gid];
-                    state[5] = py[gid];
+                    state[0] = x[gid];
+                    state[1] = px[gid];
+                    state[2] = y[gid];
+                    state[3] = py[gid];
+                    state[4] = theta[gid];
+                    state[5] = gamma[gid];
 
-                    for(int i = 0; i < 6; i++) {
+
+                    for(int i = 0; i < 6; i++) { 
                         new_state[i] = transfer_matrix[i + 36];
-                        
-                        for(int j = 0; j < 6; j++) {
-                            new_state[i] += transfer_matrix[i*6 + j] * state[j];
+                    }
+
+                    for(int j = 0; j < 6; j++) {
+                        for(int i = 0; i < 6; i++) { 
+                            new_state[i] += transfer_matrix[i + j*6] * state[j];
                         }
                     }
 
-                    theta[gid] = new_state[0];
-                    gamma[gid] = new_state[1];
-                    x[gid]     = new_state[2];
-                    y[gid]     = new_state[3];
-                    px[gid]    = new_state[4];
-                    py[gid]    = new_state[5];
+                    x[gid]     = new_state[0];
+                    px[gid]    = new_state[1];
+                    y[gid]     = new_state[2];
+                    py[gid]    = new_state[3];
+                    theta[gid] = new_state[4];
+                    gamma[gid] = new_state[5];
                 }
 
 
-                #define SPARSE_SAVE_THETA   0x00000001
-                #define SPARSE_SAVE_GAMMA   0x00000002
-                #define SPARSE_SAVE_X       0x00000004
-                #define SPARSE_SAVE_Y       0x00000008
-                #define SPARSE_SAVE_PX      0x00000010
-                #define SPARSE_SAVE_PY      0x00000020
-                #define SPARSE_LOAD_THETA   0x00000040
-                #define SPARSE_LOAD_GAMMA   0x00000080
-                #define SPARSE_LOAD_X       0x00000100
-                #define SPARSE_LOAD_Y       0x00000200
-                #define SPARSE_LOAD_PX      0x00000400
-                #define SPARSE_LOAD_PY      0x00000800
+                #define SPARSE_SAVE_X       0x00000001
+                #define SPARSE_SAVE_PX      0x00000002
+                #define SPARSE_SAVE_Y       0x00000004
+                #define SPARSE_SAVE_PY      0x00000008
+                #define SPARSE_SAVE_THETA   0x00000010
+                #define SPARSE_SAVE_GAMMA   0x00000020
+                #define SPARSE_LOAD_X       0x00000040
+                #define SPARSE_LOAD_PX      0x00000080
+                #define SPARSE_LOAD_Y       0x00000100
+                #define SPARSE_LOAD_PY      0x00000200
+                #define SPARSE_LOAD_THETA   0x00000400
+                #define SPARSE_LOAD_GAMMA   0x00000800
                 
                 // Sparse linear transformation of the beam.
-                __kernel void linear_optic_sparse(__global double* theta,
-                                                  __global double* gamma,
-                                                  __global double* x,
-                                                  __global double* y,
+                __kernel void linear_optic_sparse(__global double* x,
                                                   __global double* px,
+                                                  __global double* y,
                                                   __global double* py,
+                                                  __global double* theta,
+                                                  __global double* gamma,
                                                   __constant double* transfer_matrix,
                                                   __constant uchar2* indices,
                                                   const uint transfer_matrix_size,
@@ -95,12 +98,12 @@ class LinearTransform(BeamTransform):
                     const ulong gid = get_global_id(0);
                     double state[6], new_state[6];
 
-                    if(flags & SPARSE_LOAD_THETA) state[0] = theta[gid];
-                    if(flags & SPARSE_LOAD_GAMMA) state[1] = gamma[gid];
-                    if(flags & SPARSE_LOAD_X)     state[2] = x[gid];
-                    if(flags & SPARSE_LOAD_Y)     state[3] = y[gid];
-                    if(flags & SPARSE_LOAD_PX)    state[4] = px[gid];
-                    if(flags & SPARSE_LOAD_PY)    state[5] = py[gid];
+                    if(flags & SPARSE_LOAD_X)     state[0] = x[gid];
+                    if(flags & SPARSE_LOAD_PX)    state[1] = px[gid];
+                    if(flags & SPARSE_LOAD_Y)     state[2] = y[gid];
+                    if(flags & SPARSE_LOAD_PY)    state[3] = py[gid];
+                    if(flags & SPARSE_LOAD_THETA) state[4] = theta[gid];
+                    if(flags & SPARSE_LOAD_GAMMA) state[5] = gamma[gid];
 
                     for(uint i = 0; i < 6; i++) {
                         new_state[i] = transfer_matrix[i];
@@ -108,15 +111,15 @@ class LinearTransform(BeamTransform):
 
                     for(uint i = 0; i < transfer_matrix_size; i++){
                         uchar2 pos = indices[i]; 
-                        new_state[pos.y] += transfer_matrix[i+6] * state[pos.x];
+                        new_state[pos.x] += transfer_matrix[i+6] * state[pos.y];
                     }
 
-                    if(flags & SPARSE_SAVE_THETA) theta[gid] = new_state[0];
-                    if(flags & SPARSE_SAVE_GAMMA) gamma[gid] = new_state[1];
-                    if(flags & SPARSE_SAVE_X)     x[gid]     = new_state[2];
-                    if(flags & SPARSE_SAVE_Y)     y[gid]     = new_state[3];
-                    if(flags & SPARSE_SAVE_PX)    px[gid]    = new_state[4];
-                    if(flags & SPARSE_SAVE_PY)    py[gid]    = new_state[5];
+                    if(flags & SPARSE_SAVE_X)     x[gid]     = new_state[0];
+                    if(flags & SPARSE_SAVE_PX)    px[gid]    = new_state[1];
+                    if(flags & SPARSE_SAVE_Y)     y[gid]     = new_state[2];
+                    if(flags & SPARSE_SAVE_PY)    py[gid]    = new_state[3];
+                    if(flags & SPARSE_SAVE_THETA) theta[gid] = new_state[4];
+                    if(flags & SPARSE_SAVE_GAMMA) gamma[gid] = new_state[5];
                 }
     '''
  
@@ -184,7 +187,7 @@ class LinearTransform(BeamTransform):
 
         for i in range(6):
             for j in range(6):
-                if dense_matrix[i,j] != 0.0:
+                if (dense_matrix[i,j] != 0.0) and (flags & (0x1 << i)):
                     values.append(dense_matrix[i,j])
                     indices.extend([i, j])
 
@@ -198,29 +201,30 @@ class LinearTransform(BeamTransform):
             Apply the transform to the beam
         '''
         beam.wait()
-        event = None
         if self.matrix_format == 'dense':
             event = self.program.linear_optic_dense(cl_queue, (len(beam),),
                                                     None,
+                                                    beam.x, beam.px,
+                                                    beam.y, beam.py,
                                                     beam.theta, beam.gamma,
-                                                    beam.x, beam.y,
-                                                    beam.px, beam.py,
                                                     self.device_dense_matrix)
+            beam.events.append(event)
 
         if self.matrix_format == 'sparse':
 
             values_n = self.sparse_values.shape[0]
-
-            event = self.program.linear_optic_sparse(cl_queue, (len(beam),),
-                                             None,
-                                             beam.theta, beam.gamma,
-                                             beam.x, beam.y,
-                                             beam.px, beam.py,
-                                             self.device_sparse_values,
-                                             self.device_sparse_indices,
-                                             np.int32(values_n),
-                                             np.int32(self.sparse_flags))
-        beam.events.append(event)
+            
+            if self.sparse_flags != 0:
+                event = self.program.linear_optic_sparse(cl_queue, (len(beam),),
+                                                 None,
+                                                 beam.x, beam.px,
+                                                 beam.y, beam.py,
+                                                 beam.theta, beam.gamma,
+                                                 self.device_sparse_values,
+                                                 self.device_sparse_indices,
+                                                 np.int32(values_n),
+                                                 np.int32(self.sparse_flags))
+                beam.events.append(event)
 
 
     def set_matrix_format(self, matrix_format):

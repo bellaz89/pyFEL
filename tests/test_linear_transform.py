@@ -4,7 +4,7 @@ from clfel.util.random import Random
 from .test_beam import get_random_beam
 
 SEED = 54321
-BEAM_SIZE = 1 
+BEAM_SIZE = 1000 
 
 def test_dense():
     beam_dev, beam_host = get_random_beam(BEAM_SIZE)
@@ -16,7 +16,7 @@ def test_dense():
     assert np.array_equal(lin_transform.dense_matrix[:6, :6], random_matrix)
     assert np.array_equal(lin_transform.dense_matrix[:6, 6], random_vector)
     lin_transform.transform(beam_dev)
-    beam_host = beam_host.dot(random_matrix.transpose()) + random_vector
+    beam_host = random_matrix.dot(beam_host) + random_vector[:, np.newaxis]
     assert np.allclose(beam_dev.as_numpy(), beam_host)
 
     beam_dev, beam_host = get_random_beam(BEAM_SIZE)
@@ -27,9 +27,9 @@ def test_dense():
     lin_transform.transform(beam_dev)
     lin_transform.transform(beam_dev)
     lin_transform.transform(beam_dev)
-    beam_host = beam_host.dot(random_matrix.transpose())
-    beam_host = beam_host.dot(random_matrix.transpose())
-    beam_host = beam_host.dot(random_matrix.transpose())
+    beam_host = random_matrix.dot(beam_host)
+    beam_host = random_matrix.dot(beam_host)
+    beam_host = random_matrix.dot(beam_host)
     assert np.allclose(beam_dev.as_numpy(), beam_host)
 
 def test_sparse():
@@ -40,7 +40,7 @@ def test_sparse():
     lin_transform = LinearTransform(random_matrix, random_vector, 'sparse')
     assert lin_transform.matrix_format == 'sparse'
     lin_transform.transform(beam_dev)
-    beam_host = beam_host.dot(random_matrix) + random_vector
+    beam_host = random_matrix.dot(beam_host) + random_vector[:, np.newaxis]
     assert np.allclose(beam_dev.as_numpy(), beam_host)
 
     beam_dev, beam_host = get_random_beam(BEAM_SIZE)
@@ -50,7 +50,7 @@ def test_sparse():
     lin_transform = LinearTransform(zero_matrix, random_vector, 'sparse')
     assert lin_transform.matrix_format == 'sparse'
     lin_transform.transform(beam_dev)
-    beam_host = beam_host.dot(zero_matrix) + random_vector
+    beam_host = zero_matrix.dot(beam_host) + random_vector[:, np.newaxis]
     assert np.allclose(beam_dev.as_numpy(), beam_host)
 
     beam_dev, beam_host = get_random_beam(BEAM_SIZE)
@@ -84,7 +84,7 @@ def test_sparse():
 
     assert lin_transform.matrix_format == 'sparse'
     lin_transform.transform(beam_dev)
-    beam_host = beam_host.dot(matrix)
+    beam_host = matrix.dot(beam_host)
     assert np.allclose(beam_dev.as_numpy(), beam_host)
 
 
