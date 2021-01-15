@@ -1,5 +1,6 @@
 import pytest
 from clfel.base.beam import Beam
+from clfel.base.clctx import cl_ftype
 from clfel.util.random import Random
 import numpy as np
 from numpy.random import rand
@@ -9,12 +10,12 @@ TEST_SIZE = 1000000
 TEST_SIZE2 = 454545
 TEST_SIZE3 = 666666
 
-test_array = np.array(rand(6, TEST_SIZE), order="C")
-test_array2 = np.array(rand(6, TEST_SIZE2), order="C")
-test_array3 = np.array(rand(6, TEST_SIZE3), order="C")
+test_array = np.array(rand(6, TEST_SIZE), order="C", dtype=cl_ftype)
+test_array2 = np.array(rand(6, TEST_SIZE2), order="C", dtype=cl_ftype)
+test_array3 = np.array(rand(6, TEST_SIZE3), order="C", dtype=cl_ftype)
 
-wrong_array1 = np.array(rand(5, TEST_SIZE), order="C")
-wrong_array2 = np.array(rand(7, TEST_SIZE), order="C")
+wrong_array1 = np.array(rand(5, TEST_SIZE), order="C", dtype=cl_ftype)
+wrong_array2 = np.array(rand(7, TEST_SIZE), order="C", dtype=cl_ftype)
 
 def get_random_beam(size, long_distrib=(0.0, 1.0), seed=None):
     if not seed:
@@ -23,13 +24,13 @@ def get_random_beam(size, long_distrib=(0.0, 1.0), seed=None):
     theta = (random.get_array(size).reshape((1, size))*(long_distrib[1] - long_distrib[0]) +
              long_distrib[1])
     beam = random.get_normal_array(5*size).reshape((5, size))
-    beam = np.vstack((beam[:4, :], theta, beam[4, :]))
+    beam = np.vstack((beam[:4, :], theta, beam[4, :])).astype(dtype=cl_ftype)
     return Beam(beam), beam
 
 def test_creation():
     beam = Beam(test_array)
     assert len(beam) == TEST_SIZE
-    beam = Beam(np.array(test_array, order="C"))
+    beam = Beam(np.array(test_array, order="C").astype(np.float64))
     assert len(beam) == TEST_SIZE
     beam = Beam(np.array(test_array, order="C").astype(np.float32))
     assert len(beam) == TEST_SIZE

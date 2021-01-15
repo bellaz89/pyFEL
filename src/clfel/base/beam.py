@@ -1,7 +1,7 @@
 '''
     Beam module.
 '''
-from .clctx import cl_ctx, cl_queue
+from .clctx import cl_ctx, cl_queue, cl_ftype, cl_ftype_nbytes, F
 import pyopencl as cl
 import numpy as np
 
@@ -13,11 +13,11 @@ class Beam(object):
         Beam class, a collection of slices.
     '''
     PREAMBLE = '''
-                // atomic addition for double \n
-                double __attribute__((overloadable)) atomic_add(__global double *ptr, 
-                                                                double delta) {
+                // atomic addition for FLOAT_TYPE \n
+                FLOAT_TYPE __attribute__((overloadable)) atomic_add(__global FLOAT_TYPE *ptr, 
+                                                                FLOAT_TYPE delta) {
                     typedef union { 
-                        double d;
+                        FLOAT_TYPE d;
                         ulong  ul;
                     } d_conversion;
 
@@ -30,10 +30,10 @@ class Beam(object):
                     return u1.d;
                 }
 
-                // atomic min for double \n
-                double __attribute__((overloadable)) atomic_min(__global double *ptr, double value) {
+                // atomic min for FLOAT_TYPE \n
+                FLOAT_TYPE __attribute__((overloadable)) atomic_min(__global FLOAT_TYPE *ptr, FLOAT_TYPE value) {
                     typedef union {
-                        double d;
+                        FLOAT_TYPE d;
                         ulong  ul;
                     } d_conversion;
 
@@ -46,10 +46,10 @@ class Beam(object):
                     return u1.d;
                 }
 
-                // atomic max for double \n
-                double __attribute__((overloadable)) atomic_max(__global double *ptr, double value) {
+                // atomic max for FLOAT_TYPE \n
+                FLOAT_TYPE __attribute__((overloadable)) atomic_max(__global FLOAT_TYPE *ptr, FLOAT_TYPE value) {
                     typedef union {
-                        double d;
+                        FLOAT_TYPE d;
                         ulong  ul;
                     } d_conversion;
 
@@ -63,20 +63,20 @@ class Beam(object):
                 }
                 
                 //  discretize value by the discretization len 'disc' \n
-                uint discretize(double value, double disc){
+                uint discretize(FLOAT_TYPE value, FLOAT_TYPE disc){
                     return (uint) floor(value/disc); 
                 }
 
                 //  discretize value by the invers discretization len 'invdisc' \n
-                uint discretize_inv(double value, double invdisc){
+                uint discretize_inv(FLOAT_TYPE value, FLOAT_TYPE invdisc){
                     return (uint) floor(value*invdisc); 
                 }
                 '''
 
     KERNEL = PREAMBLE +'''
                 // This kernel shifts the memory on the left by 'size'.\n
-                __kernel void shift(__global double* arr, 
-                                    __local double* tmp_arr,
+                __kernel void shift(__global FLOAT_TYPE* arr, 
+                                    __local FLOAT_TYPE* tmp_arr,
                                     const ulong size, 
                                     const ulong shift){
                  
@@ -91,14 +91,14 @@ class Beam(object):
                 }
                 
                 // This kernel performs diagnostics on the beam (version1). \n
-                __kernel void diagnostic1(__global double* x,
-                                          __global double* px,
-                                          __global double* y,
-                                          __global double* py,
-                                          __global double* theta,
-                                          __global double* gamma,
-                                          __global double* diagnostic_arr,
-                                          __local double* tmp,
+                __kernel void diagnostic1(__global FLOAT_TYPE* x,
+                                          __global FLOAT_TYPE* px,
+                                          __global FLOAT_TYPE* y,
+                                          __global FLOAT_TYPE* py,
+                                          __global FLOAT_TYPE* theta,
+                                          __global FLOAT_TYPE* gamma,
+                                          __global FLOAT_TYPE* diagnostic_arr,
+                                          __local FLOAT_TYPE* tmp,
                                           const ulong size,
                                           const uint harmonics){
 
@@ -111,7 +111,7 @@ class Beam(object):
                         tmp[lid+lsize*1] = sin(tmp[lid+lsize*0]);
 
                         for(uint i = 0; i < harmonics*2; i+=2) {
-                            double theta_harm = tmp[lid+lsize*0]*((double)(i+2));
+                            FLOAT_TYPE theta_harm = tmp[lid+lsize*0]*((FLOAT_TYPE)(i+2));
                             tmp[lid+lsize*(10+i)] = cos(theta_harm);  
                             tmp[lid+lsize*(11+i)] = sin(theta_harm);
                         }
@@ -149,13 +149,13 @@ class Beam(object):
                 }
 
                 // This kernel performs diagnostics on the beam (version2). \n
-                __kernel void diagnostic2(__global double* x,
-                                          __global double* px,
-                                          __global double* y,
-                                          __global double* py,
-                                          __global double* gamma,
-                                          __global double* diagnostic_arr,
-                                          __local double* tmp,
+                __kernel void diagnostic2(__global FLOAT_TYPE* x,
+                                          __global FLOAT_TYPE* px,
+                                          __global FLOAT_TYPE* y,
+                                          __global FLOAT_TYPE* py,
+                                          __global FLOAT_TYPE* gamma,
+                                          __global FLOAT_TYPE* diagnostic_arr,
+                                          __local FLOAT_TYPE* tmp,
                                           const ulong size){
 
                     const ulong gid = get_global_id(0);
@@ -210,20 +210,20 @@ class Beam(object):
         self.len = beam_array.shape[1]
         self.events = []
 
-        if beam_array.dtype != np.float64:
-            beam_array = beam_array.astype(np.float64)
+        if beam_array.dtype != cl_ftype:
+            beam_array = beam_array.astype(cl_ftype)
 
         if not beam_array.flags.f_contiguous:
             beam_array = np.array(beam_array, order="C")
 
         mf = cl.mem_flags
         
-        self.theta = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*8)
-        self.gamma = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*8)
-        self.x = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*8)
-        self.y = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*8)
-        self.px = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*8)
-        self.py = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*8)
+        self.theta = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
+        self.gamma = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
+        self.x = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
+        self.y = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
+        self.px = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
+        self.py = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
 
         self.events.append(cl.enqueue_copy(cl_queue, self.x, beam_array[0, :]))
         self.events.append(cl.enqueue_copy(cl_queue, self.px, beam_array[1, :]))
@@ -253,41 +253,41 @@ class Beam(object):
                 beam_range[1] += self.len
 
             arr_len = beam_range[1] - beam_range[0]
-            beam_array = np.empty((6, arr_len), dtype=np.float64, order="C")
+            beam_array = np.empty((6, arr_len), dtype=cl_ftype, order="C")
             
             self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[0, :], 
                                                self.x,
-                                               device_offset=beam_range[0]*8))
+                                               device_offset=beam_range[0]*cl_ftype_nbytes))
 
             self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[1, :], 
                                                self.px,
-                                               device_offset=beam_range[0]*8)) 
+                                               device_offset=beam_range[0]*cl_ftype_nbytes)) 
 
             self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[2, :], 
                                                self.y,
-                                               device_offset=beam_range[0]*8))
+                                               device_offset=beam_range[0]*cl_ftype_nbytes))
 
             self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[3, :], 
                                                self.py,
-                                               device_offset=beam_range[0]*8))
+                                               device_offset=beam_range[0]*cl_ftype_nbytes))
 
             self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[4, :], 
                                                self.theta,
-                                               device_offset=beam_range[0]*8))
+                                               device_offset=beam_range[0]*cl_ftype_nbytes))
 
             self.events.append(cl.enqueue_copy(cl_queue, 
                                                beam_array[5, :], 
                                                self.gamma,
-                                               device_offset=beam_range[0]*8)) 
+                                               device_offset=beam_range[0]*cl_ftype_nbytes)) 
 
             return beam_array
         else:
-            beam_array = np.empty((6, self.len), dtype=np.float64, order="C")
+            beam_array = np.empty((6, self.len), dtype=cl_ftype, order="C")
             self.events.append(cl.enqueue_copy(cl_queue, beam_array[0, :], self.x))
             self.events.append(cl.enqueue_copy(cl_queue, beam_array[1, :], self.px)) 
             self.events.append(cl.enqueue_copy(cl_queue, beam_array[2, :], self.y))    
@@ -314,8 +314,8 @@ class Beam(object):
             assert beam_array.shape[0] == 6, "Rows must be 6"
             new_len += beam_array.shape[1]
 
-            if beam_array.dtype != np.float64:
-                beam_array = beam_array.astype(np.float64)
+            if beam_array.dtype != cl_ftype:
+                beam_array = beam_array.astype(cl_ftype)
 
             if not beam_array.flags.f_contiguous:
                 beam_array = np.array(beam_array, order="C")
@@ -325,7 +325,7 @@ class Beam(object):
         self.resize(new_len)
 
         for beam_array in beam_arrays:
-            offset = self.len*8
+            offset = self.len*cl_ftype_nbytes
             self.len += beam_array.shape[1]
             self.events.append(cl.enqueue_copy(cl_queue, self.x, 
                                                beam_array[0, :], 
@@ -360,12 +360,12 @@ class Beam(object):
             self.len = size
         elif size > self.size:
             mf = cl.mem_flags
-            x = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
-            px = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
-            y = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
-            py = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
-            theta = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
-            gamma = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*8)
+            x = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
+            px = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
+            y = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
+            py = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
+            theta = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
+            gamma = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
        
             self.wait()
             self.events.append(cl.enqueue_copy(cl_queue, x, self.x))
@@ -389,5 +389,5 @@ class Beam(object):
         '''
             Compile kernels
         '''
-        cls.program = cl.Program(cl_ctx, cls.KERNEL).build()
+        cls.program = cl.Program(cl_ctx, F(cls.KERNEL)).build()
 

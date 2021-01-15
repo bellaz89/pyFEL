@@ -6,7 +6,7 @@ import numpy as np
 import pyopencl as cl
 from .beam_transform import BeamTransform
 from .beam import Beam
-from .clctx import cl_queue, cl_ctx 
+from .clctx import cl_queue, cl_ctx, cl_ftype, F 
 
 from clfel.util.init_class import init_class
 
@@ -31,17 +31,17 @@ class LinearTransform(BeamTransform):
 
     KERNEL = '''
                 // Dense linear transformation of the beam. The result is new_state = M*state
-                __kernel void linear_optic_dense(__global double* x,
-                                                 __global double* px,
-                                                 __global double* y,
-                                                 __global double* py,
-                                                 __global double* theta,
-                                                 __global double* gamma,
-                                                 __constant double* transfer_matrix) {
+                __kernel void linear_optic_dense(__global FLOAT_TYPE* x,
+                                                 __global FLOAT_TYPE* px,
+                                                 __global FLOAT_TYPE* y,
+                                                 __global FLOAT_TYPE* py,
+                                                 __global FLOAT_TYPE* theta,
+                                                 __global FLOAT_TYPE* gamma,
+                                                 __constant FLOAT_TYPE* transfer_matrix) {
                     
                     const ulong gid = get_global_id(0);
-                    double state[6];
-                    double new_state[6];
+                    FLOAT_TYPE state[6];
+                    FLOAT_TYPE new_state[6];
 
                     state[0] = x[gid];
                     state[1] = px[gid];
@@ -84,19 +84,19 @@ class LinearTransform(BeamTransform):
                 #define SPARSE_LOAD_GAMMA   0x00000800
                 
                 // Sparse linear transformation of the beam.
-                __kernel void linear_optic_sparse(__global double* x,
-                                                  __global double* px,
-                                                  __global double* y,
-                                                  __global double* py,
-                                                  __global double* theta,
-                                                  __global double* gamma,
-                                                  __constant double* transfer_matrix,
+                __kernel void linear_optic_sparse(__global FLOAT_TYPE* x,
+                                                  __global FLOAT_TYPE* px,
+                                                  __global FLOAT_TYPE* y,
+                                                  __global FLOAT_TYPE* py,
+                                                  __global FLOAT_TYPE* theta,
+                                                  __global FLOAT_TYPE* gamma,
+                                                  __constant FLOAT_TYPE* transfer_matrix,
                                                   __constant uchar2* indices,
                                                   const uint transfer_matrix_size,
                                                   const uint flags){
 
                     const ulong gid = get_global_id(0);
-                    double state[6], new_state[6];
+                    FLOAT_TYPE state[6], new_state[6];
 
                     if(flags & SPARSE_LOAD_X)     state[0] = x[gid];
                     if(flags & SPARSE_LOAD_PX)    state[1] = px[gid];
@@ -131,18 +131,18 @@ class LinearTransform(BeamTransform):
             whether the required load/stores are higher than format_threshold.
         '''
 
-        self.dense_matrix = np.array(transfer_matrix, dtype=np.float64, order='F')
+        self.dense_matrix = np.array(transfer_matrix, dtype=cl_ftype, order='F')
 
         assert self.dense_matrix.shape == (6,6), "Error, the transfer matrix in" \
                                                  "linear transform must be 6x6" 
 
         if not isinstance(shift_vector, np.ndarray):
-            shift_vector = np.zeros(6, dtype=np.float64)
+            shift_vector = np.zeros(6, dtype=cl_ftype)
      
         assert shift_vector.shape == (6,), "Error, the shift vector length" \
                                            "in linear transform must be 6"
 
-        expanded_matrix = np.empty((6,7), dtype=np.float64, order='F')
+        expanded_matrix = np.empty((6,7), dtype=cl_ftype, order='F')
         expanded_matrix[:,:6] = self.dense_matrix
         expanded_matrix[:,6] = shift_vector 
         self.dense_matrix = expanded_matrix
@@ -173,7 +173,7 @@ class LinearTransform(BeamTransform):
         indices = []
         flags = 0x0
         mem_op = 0
-        identity = np.eye(6, 7, dtype=np.float64)
+        identity = np.eye(6, 7, dtype=cl_ftype)
         
         for i in range(6):
             if not np.array_equal(dense_matrix[i,:], identity[i,:]):
@@ -191,7 +191,7 @@ class LinearTransform(BeamTransform):
                     values.append(dense_matrix[i,j])
                     indices.extend([i, j])
 
-        values = np.array(values, dtype=np.float64)
+        values = np.array(values, dtype=cl_ftype)
         indices = np.array(indices, dtype=np.uint8)
 
         return values, indices, flags, mem_op
@@ -200,7 +200,6 @@ class LinearTransform(BeamTransform):
         '''
             Apply the transform to the beam
         '''
-        beam.wait()
         if self.matrix_format == 'dense':
             event = self.program.linear_optic_dense(cl_queue, (len(beam),),
                                                     None,
@@ -211,7 +210,6 @@ class LinearTransform(BeamTransform):
             beam.events.append(event)
 
         if self.matrix_format == 'sparse':
-
             values_n = self.sparse_values.shape[0]
             
             if self.sparse_flags != 0:
@@ -255,13 +253,12 @@ class LinearTransform(BeamTransform):
             self.device_sparse_indices = cl.Buffer(cl_ctx, 
                                                    mf.READ_ONLY | mf.COPY_HOST_PTR, 
                                                    hostbuf=sparse_indices)
-            
 
 
-    @classmethod
+            @classmethod
     def initialize(cls):
         '''
             Compile kernels
         '''
-        cls.program = cl.Program(cl_ctx, cls.KERNEL).build()
+        cls.program = cl.Program(cl_ctx, F(cls.KERNEL)).build()
 
