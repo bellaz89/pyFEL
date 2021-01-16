@@ -3,6 +3,8 @@
 '''
 from .clctx import cl_ctx, cl_queue, cl_ftype, cl_ftype_nbytes, F
 import pyopencl as cl
+from pyopencl.algorithm import RadixSort
+from pyopencl.scan import GenericScanKernel
 import numpy as np
 
 from clfel.util.init_class import init_class
@@ -381,8 +383,21 @@ class Beam(object):
             self.y = y
             self.theta = theta
             self.gamma = gamma
-
             self.size = size
+
+    def sort_longitudinal(self, slice_len):
+        '''
+            Sort the beam longitudinally, using a discretization of 'slice_len'
+        '''
+        pass
+
+    def sort_longitudinal_traverse(self, slice_len, traverse_len, traverse_bins):
+        '''
+            Sort the beam. The longitudinal discretization is 'slice_len',
+            the traversal discretization is 'traverse_len'. The number of traversal bins
+            is 'traverse bins'. 
+        '''
+        pass
 
     @classmethod
     def initialize(cls):
@@ -390,4 +405,65 @@ class Beam(object):
             Compile kernels
         '''
         cls.program = cl.Program(cl_ctx, F(cls.KERNEL)).build()
+        cls.longitudinal_sort_kernel = RadixSort(cl_ctx,
+                                                 F("""FLOAT_TYPE* x, 
+                                                      FLOAT_TYPE* px,
+                                                      FLOAT_TYPE* y,
+                                                      FLOAT_TYPE* py,
+                                                      FLOAT_TYPE* theta,
+                                                      FLOAT_TYPE* gamma,
+                                                      FLOAT_TYPE  inv_slice_len"""),
+                                                 key_expr="(int) floor(theta[i]*inv_slice_len)",
+                                                 sort_arg_names=["x", "px", "y", "py", "theta", "gamma"],
+                                                 key_dtype=np.int32)
+
+        class LongitudinalTraverseScanKernel(GenericScanKernel):
+            '''
+                Adds a preamble method for the longitudinal traverse sort
+            '''
+            def __init__(self, *argl, **argd):
+                '''
+                    Patch argd['preamble']
+                '''
+
+                sort_fun = '''
+                            int sort_fun(FLOAT_TYPE x, 
+                                         FLOAT_TYPE y, 
+                                         FLOAT_TYPE theta, 
+                                         FLOAT_TYPE inv_slice_len, 
+                                         FLOAT_TYPE inv_traverse_len,
+                                         int bins) {
+                                         
+                                         FLOAT_TYPE xnorm = 0.5 + (inv_traverse_len*x);
+                                         FLOAT_TYPE ynorm = 0.5 + (inv_traverse_len*y);
+                                         int xbin = (int) floor(xnorm * inv_traverse_len);
+                                         int ybin = (int) floor(ynorm * inv_traverse_len);
+                                         int zbin = (int) floor(theta*inv_slice_len);
+                                         xbin = xbin >= 0 ? xbin : 0;
+                                         ybin = ybin >= 0 ? ybin : 0;
+                                         xbin = xbin < bins ? xbin : bins-1;
+                                         ybin = ybin < bins ? ybin : bins-1;
+
+                                         return xbin+bins*(ybin+bins*zbin);
+                            }
+                           '''
+                
+                new_argd = dict(argd)
+                new_argd['preamble'] = F(sort_fun + new_argd['preamble'])
+                super().__init__(*argl, **new_argd)
+        
+        cls.longitudinal_traverse_sort_kernel = RadixSort(cl_ctx,
+                                                          F("""FLOAT_TYPE* x, 
+                                                               FLOAT_TYPE* px,
+                                                               FLOAT_TYPE* y,
+                                                               FLOAT_TYPE* py,
+                                                               FLOAT_TYPE* theta,
+                                                               FLOAT_TYPE* gamma,
+                                                               FLOAT_TYPE  inv_slice_len,
+                                                               FLOAT_TYPE  inv_traverse_len,
+                                                               int bins"""),
+                                                           key_expr="sort_fun(x[i],y[i],theta[i], inv_slice_len, inv_traverse_len, bins)",
+                                                           sort_arg_names=["x", "px", "y", "py", "theta", "gamma"],
+                                                           scan_kernel = LongitudinalTraverseScanKernel,
+                                                           key_dtype=np.int32)
 

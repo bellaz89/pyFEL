@@ -58,12 +58,12 @@ class TensorTransform(BeamTransform):
                     const ulong gid = get_global_id(0);
                     FLOAT_TYPE state[6], new_state[6];
 
-                    if(flags & SPARSE_LOAD_X)     state[0] = x[gid];
-                    if(flags & SPARSE_LOAD_PX)    state[1] = px[gid];
-                    if(flags & SPARSE_LOAD_Y)     state[2] = y[gid];
-                    if(flags & SPARSE_LOAD_PY)    state[3] = py[gid];
-                    if(flags & SPARSE_LOAD_THETA) state[4] = theta[gid];
-                    if(flags & SPARSE_LOAD_GAMMA) state[5] = gamma[gid];
+                    if(flags & SPARSE_SAVE_X)     state[0] = x[gid];
+                    if(flags & SPARSE_SAVE_PX)    state[1] = px[gid];
+                    if(flags & SPARSE_SAVE_Y)     state[2] = y[gid];
+                    if(flags & SPARSE_SAVE_PY)    state[3] = py[gid];
+                    if(flags & SPARSE_SAVE_THETA) state[4] = theta[gid];
+                    if(flags & SPARSE_SAVE_GAMMA) state[5] = gamma[gid];
 
                     for(uint i = 0; i < 6; i++) {
                         new_state[i] = 0.0;
@@ -100,7 +100,7 @@ class TensorTransform(BeamTransform):
                 assert dims == 6, "All tensor dimensions should be 6" 
    
         mf = cl.mem_flags
-        self.values, self.indices, self.flags = self.analyze_tensors(tensors)
+        self.values, self.indices, self.flags, self.elements = self.analyze_tensors(tensors)
 
         if self.flags != 0:
             self.device_values = cl.Buffer(cl_ctx, 
@@ -120,7 +120,8 @@ class TensorTransform(BeamTransform):
         values = []
         indices = []
         flags = 0x0
-        tensors_dict = dict()
+        elements = 0
+        tensor_dict = dict()
 
         for tensor in tensors:
             for index in np.ndindex(tensor.shape):
@@ -136,6 +137,7 @@ class TensorTransform(BeamTransform):
                         tensor_dict[key] += tensor[index]
                     else:
                         tensor_dict[key] = tensor[index]
+                        elements += 1
 
             
         for i in range(6):
@@ -153,7 +155,7 @@ class TensorTransform(BeamTransform):
                 flags = flags | (0x1 << i)
 
         for i in range(6):
-            line_elements = list(filter(lambda x: x[i] != 0, tensor_dict))
+            line_elements = list(filter(lambda x: x[1][i] != 0, tensor_dict))
 
             if len(line_elements) > 0:
                 flags = flags | (0x1 << (i+6))
@@ -166,15 +168,14 @@ class TensorTransform(BeamTransform):
         values = np.array(values, dtype=cl_ftype)
         indices = np.array(indices, dtype=np.uint8)
 
-        return values, indices, flags
+        return values, indices, flags, elements
 
     def transform(self, beam):
         '''
             Apply the transform to the beam
         '''
         
-        if self.sparse_flags != 0:
-            values_n = self.values.shape[0]
+        if self.flags != 0:
             event = self.program.tensor_optic_sparse(cl_queue, (len(beam),),
                                              None,
                                              beam.x, beam.px,
@@ -182,41 +183,9 @@ class TensorTransform(BeamTransform):
                                              beam.theta, beam.gamma,
                                              self.device_values,
                                              self.device_indices,
-                                             np.int32(values_n),
-                                             np.int32(self.flags))
+                                             np.uint32(self.elements),
+                                             np.uint32(self.flags))
             beam.events.append(event)
-
-
-    @staticmethod
-    def tensor_mul(np_tensor, np_beam):
-        '''
-            Multiplies a numpy tensor with a numpy beam. For debugging purpourses
-        '''
-        np_transf_beam = np.empty_like(np_beam)
-
-        for i in range(np_beam.shape[1]):
-            result = np.copy(np_tensor)
-            for j in range(len(np_tensor.shape[1:])):    
-                result = np.tensordot(result, np_beam[:, i], 1)
-
-            np_transf_beam[:, i] = result
-
-        return np_transf_beam
-
-
-    @staticmethod
-    def tensors_mul(np_tensors, np_beam):
-        '''
-            Multiplies a list of numpy tensors with a numpy beam. For debugging purpourses
-        '''
-        np_transf_beam = np.empty_like(np_beam)
-        for np_tensor in np_tensors:
-            np_transf_beam += self.tensor_mul(np_tensorm, np_beam)
-        
-        return np_transf_beam
-
-
-
 
     @classmethod
     def initialize(cls):

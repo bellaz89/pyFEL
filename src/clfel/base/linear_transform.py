@@ -255,7 +255,7 @@ class LinearTransform(BeamTransform):
                                                    hostbuf=sparse_indices)
 
 
-            @classmethod
+    @classmethod
     def initialize(cls):
         '''
             Compile kernels

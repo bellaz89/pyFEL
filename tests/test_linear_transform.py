@@ -67,7 +67,7 @@ def test_sparse():
     matrix = np.eye(6) 
     matrix[2,3] = 2.0
     matrix[5,0] = 1.0
-    
+
     lin_transform = LinearTransform(matrix, None, 'sparse')
 
     assert lin_transform.SPARSE_SAVE_X     & lin_transform.sparse_flags
