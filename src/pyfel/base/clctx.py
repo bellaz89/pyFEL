@@ -6,10 +6,10 @@ import pyopencl as cl
 from config_path import ConfigPath
 import toml
 
-from clfel.util.init_class import init_class
+from pyfel.util.init_class import init_class
 
-VENDOR = "clfel"
-NAME = "clfel"
+VENDOR = "pyfel"
+NAME = "pyfel"
 EXTENSION = ".toml"
 DEFAULT_WAVEFRONT = 32
 DEFAULT_FTYPE = np.float64

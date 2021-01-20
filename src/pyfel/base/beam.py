@@ -10,7 +10,7 @@ from pyopencl.scan import GenericScanKernel
 from copy import copy
 import numpy as np
 
-from clfel.util.init_class import init_class
+from pyfel.util.init_class import init_class
 
 @init_class
 class Beam(object):

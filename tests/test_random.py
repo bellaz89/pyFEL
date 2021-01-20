@@ -1,5 +1,5 @@
 import pytest
-from clfel.util.random import Random
+from pyfel.util.random import Random
 from random import randint
 import numpy as np
 

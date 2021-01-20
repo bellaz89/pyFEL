@@ -1,7 +1,7 @@
 import numpy as np
-from clfel.base.clctx import cl_ftype
-from clfel.base.linear_transform import LinearTransform
-from clfel.util.random import Random
+from pyfel.base.clctx import cl_ftype
+from pyfel.base.linear_transform import LinearTransform
+from pyfel.util.random import Random
 from .test_beam import get_random_beam
 from .tolerance import cl_tol
 

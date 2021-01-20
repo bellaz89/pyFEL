@@ -1,5 +1,5 @@
 import pytest
-from clfel.util.hammersley import Hammersley, PRIME_VECTOR
+from pyfel.util.hammersley import Hammersley, PRIME_VECTOR
 from random import randint
 import numpy as np
 from scipy.special import erfcinv

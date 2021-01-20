@@ -1,5 +1,5 @@
 import numpy as np
-from clfel.base.clctx import cl_ftype
+from pyfel.base.clctx import cl_ftype
 
 FLOAT64_TOLERANCE = {"rtol" : 1e-05, "atol" : 1e-08}
 FLOAT32_TOLERANCE = {"rtol" : 1e-03, "atol" :1e-05}

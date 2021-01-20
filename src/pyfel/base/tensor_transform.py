@@ -8,7 +8,7 @@ from .beam_transform import BeamTransform
 from .beam import Beam
 from .clctx import cl_queue, cl_ctx, cl_ftype, F 
 
-from clfel.util.init_class import init_class
+from pyfel.util.init_class import init_class
 
 @init_class
 class TensorTransform(BeamTransform):

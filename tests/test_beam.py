@@ -1,7 +1,7 @@
 import pytest
-from clfel.base.beam import Beam
-from clfel.base.clctx import cl_ftype
-from clfel.util.random import Random
+from pyfel.base.beam import Beam
+from pyfel.base.clctx import cl_ftype
+from pyfel.util.random import Random
 import numpy as np
 from numpy.random import rand
 
