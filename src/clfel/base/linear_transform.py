@@ -203,9 +203,9 @@ class LinearTransform(BeamTransform):
         if self.matrix_format == 'dense':
             event = self.program.linear_optic_dense(cl_queue, (len(beam),),
                                                     None,
-                                                    beam.x, beam.px,
-                                                    beam.y, beam.py,
-                                                    beam.theta, beam.gamma,
+                                                    beam.x.data, beam.px.data,
+                                                    beam.y.data, beam.py.data,
+                                                    beam.theta.data, beam.gamma.data,
                                                     self.device_dense_matrix)
             beam.events.append(event)
 
@@ -215,9 +215,9 @@ class LinearTransform(BeamTransform):
             if self.sparse_flags != 0:
                 event = self.program.linear_optic_sparse(cl_queue, (len(beam),),
                                                  None,
-                                                 beam.x, beam.px,
-                                                 beam.y, beam.py,
-                                                 beam.theta, beam.gamma,
+                                                 beam.x.data, beam.px.data,
+                                                 beam.y.data, beam.py.data,
+                                                 beam.theta.data, beam.gamma.data,
                                                  self.device_sparse_values,
                                                  self.device_sparse_indices,
                                                  np.int32(values_n),

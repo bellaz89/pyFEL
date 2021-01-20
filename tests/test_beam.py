@@ -43,18 +43,18 @@ def test_creation():
 
 def test_roundtrip():
     beam = Beam(test_array)
-    assert np.array_equal(beam.as_numpy(), test_array)
+    assert np.array_equal(beam[:], test_array)
     beam = Beam(np.array(test_array, order="C"))
-    assert np.array_equal(beam.as_numpy(), test_array)
+    assert np.array_equal(beam[:], test_array)
 
 def test_roundtrip_fraction():
     beam = Beam(test_array)
-    assert np.array_equal(beam.as_numpy((0, TEST_SIZE2)), test_array[:, :TEST_SIZE2])
-    assert np.array_equal(beam.as_numpy((TEST_SIZE2, 0)), test_array[:, TEST_SIZE2:])
-    assert np.array_equal(beam.as_numpy((TEST_SIZE2, TEST_SIZE3)), test_array[:, TEST_SIZE2:TEST_SIZE3]) 
+    assert np.array_equal(beam[0:TEST_SIZE2],          test_array[:, :TEST_SIZE2])
+    assert np.array_equal(beam[TEST_SIZE2:],          test_array[:, TEST_SIZE2:])
+    assert np.array_equal(beam[TEST_SIZE2:TEST_SIZE3], test_array[:, TEST_SIZE2:TEST_SIZE3]) 
 
 def test_merge_particles():
     beam = Beam(test_array)
     beam.merge_particles([test_array2, test_array3])
     concatenated = np.hstack((test_array, test_array2, test_array3))
-    assert np.array_equal(beam.as_numpy(), concatenated)
+    assert np.array_equal(beam[:], concatenated)

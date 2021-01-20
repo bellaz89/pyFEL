@@ -2,9 +2,12 @@
     Beam module.
 '''
 from .clctx import cl_ctx, cl_queue, cl_ftype, cl_ftype_nbytes, F
+import pyopencl.array as cl_array
 import pyopencl as cl
 from pyopencl.algorithm import RadixSort
+from pyopencl.tools import ImmediateAllocator, MemoryPool, VectorArg, ScalarArg
 from pyopencl.scan import GenericScanKernel
+from copy import copy
 import numpy as np
 
 from clfel.util.init_class import init_class
@@ -218,22 +221,14 @@ class Beam(object):
         if not beam_array.flags.f_contiguous:
             beam_array = np.array(beam_array, order="C")
 
-        mf = cl.mem_flags
+        self.allocator = MemoryPool(ImmediateAllocator(cl_queue)) 
         
-        self.theta = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
-        self.gamma = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
-        self.x = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
-        self.y = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
-        self.px = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
-        self.py = cl.Buffer(cl_ctx, mf.READ_WRITE, size=self.size*cl_ftype_nbytes)
-
-        self.events.append(cl.enqueue_copy(cl_queue, self.x, beam_array[0, :]))
-        self.events.append(cl.enqueue_copy(cl_queue, self.px, beam_array[1, :]))
-        self.events.append(cl.enqueue_copy(cl_queue, self.y, beam_array[2, :]))
-        self.events.append(cl.enqueue_copy(cl_queue, self.py, beam_array[3, :]))
-        self.events.append(cl.enqueue_copy(cl_queue, self.theta, beam_array[4, :]))
-        self.events.append(cl.enqueue_copy(cl_queue, self.gamma, beam_array[5, :]))
-
+        self.x     = cl_array.to_device(cl_queue, beam_array[0, :], allocator=self.allocator)
+        self.px    = cl_array.to_device(cl_queue, beam_array[1, :], allocator=self.allocator)
+        self.y     = cl_array.to_device(cl_queue, beam_array[2, :], allocator=self.allocator)
+        self.py    = cl_array.to_device(cl_queue, beam_array[3, :], allocator=self.allocator)
+        self.theta = cl_array.to_device(cl_queue, beam_array[4, :], allocator=self.allocator)
+        self.gamma = cl_array.to_device(cl_queue, beam_array[5, :], allocator=self.allocator)
        
     def wait(self):
         '''
@@ -243,61 +238,36 @@ class Beam(object):
             event.wait()
         self.events = []
 
-    def as_numpy(self, beam_range=None):
+    def __getitem__(self, beam_range):
         '''
             Returns the beam as numpy array (see the constructor for the order)
         '''
-        self.wait()
-       
-        if beam_range:
-            beam_range = list(beam_range)
-            if beam_range[1] <= 0:
-                beam_range[1] += self.len
-
-            arr_len = beam_range[1] - beam_range[0]
-            beam_array = np.empty((6, arr_len), dtype=cl_ftype, order="C")
-            
-            self.events.append(cl.enqueue_copy(cl_queue, 
-                                               beam_array[0, :], 
-                                               self.x,
-                                               device_offset=beam_range[0]*cl_ftype_nbytes))
-
-            self.events.append(cl.enqueue_copy(cl_queue, 
-                                               beam_array[1, :], 
-                                               self.px,
-                                               device_offset=beam_range[0]*cl_ftype_nbytes)) 
-
-            self.events.append(cl.enqueue_copy(cl_queue, 
-                                               beam_array[2, :], 
-                                               self.y,
-                                               device_offset=beam_range[0]*cl_ftype_nbytes))
-
-            self.events.append(cl.enqueue_copy(cl_queue, 
-                                               beam_array[3, :], 
-                                               self.py,
-                                               device_offset=beam_range[0]*cl_ftype_nbytes))
-
-            self.events.append(cl.enqueue_copy(cl_queue, 
-                                               beam_array[4, :], 
-                                               self.theta,
-                                               device_offset=beam_range[0]*cl_ftype_nbytes))
-
-            self.events.append(cl.enqueue_copy(cl_queue, 
-                                               beam_array[5, :], 
-                                               self.gamma,
-                                               device_offset=beam_range[0]*cl_ftype_nbytes)) 
-
-            return beam_array
-        else:
-            beam_array = np.empty((6, self.len), dtype=cl_ftype, order="C")
-            self.events.append(cl.enqueue_copy(cl_queue, beam_array[0, :], self.x))
-            self.events.append(cl.enqueue_copy(cl_queue, beam_array[1, :], self.px)) 
-            self.events.append(cl.enqueue_copy(cl_queue, beam_array[2, :], self.y))    
-            self.events.append(cl.enqueue_copy(cl_queue, beam_array[3, :], self.py))   
-            self.events.append(cl.enqueue_copy(cl_queue, beam_array[4, :], self.theta))   
-            self.events.append(cl.enqueue_copy(cl_queue, beam_array[5, :], self.gamma)) 
         
-            return beam_array
+        start = beam_range.start if beam_range.start != None else 0
+        stop = beam_range.stop  if beam_range.stop != None else self.len 
+        step = beam_range.step if beam_range.step != None else 1
+
+        if stop > self.len:
+            raise IndexError("Beam index out of range")
+
+        if start >= self.len:
+            raise IndexError("Beam index out of range")
+
+        if stop < 0:
+            stop = self.len+1+stop
+        
+        if start < 0:
+            start = self.len+1+beam_range.start
+
+        self.wait()
+        x = self.x[start:stop:step].get(cl_queue)
+        px = self.px[start:stop:step].get(cl_queue)
+        y = self.y[start:stop:step].get(cl_queue)
+        py = self.py[start:stop:step].get(cl_queue)
+        theta = self.theta[start:stop:step].get(cl_queue)
+        gamma = self.gamma[start:stop:step].get(cl_queue)
+
+        return np.vstack((x, px, y, py, theta, gamma))
 
     def __len__(self):
         '''
@@ -310,49 +280,19 @@ class Beam(object):
             Merge new particles in the beam.
         '''
         
-        new_len = self.len
-        for i in range(len(beam_arrays)):
-            beam_array = beam_arrays[i]
-            assert beam_array.shape[0] == 6, "Rows must be 6"
-            new_len += beam_array.shape[1]
+        old_len = self.len
+        assert beam_arrays[0].shape[0] == 6, "Rows must be 6"
+        concatenated_array = np.hstack(beam_arrays)
+        self.resize(old_len + concatenated_array.shape[1])
+        self.len = old_len + concatenated_array.shape[1]
 
-            if beam_array.dtype != cl_ftype:
-                beam_array = beam_array.astype(cl_ftype)
-
-            if not beam_array.flags.f_contiguous:
-                beam_array = np.array(beam_array, order="C")
-
-            beam_arrays[i] = beam_array
-
-        self.resize(new_len)
-
-        for beam_array in beam_arrays:
-            offset = self.len*cl_ftype_nbytes
-            self.len += beam_array.shape[1]
-            self.events.append(cl.enqueue_copy(cl_queue, self.x, 
-                                               beam_array[0, :], 
-                                               device_offset=offset))
-
-            self.events.append(cl.enqueue_copy(cl_queue, self.px, 
-                                               beam_array[1, :],
-                                               device_offset=offset))
-            
-            self.events.append(cl.enqueue_copy(cl_queue, self.y, 
-                                               beam_array[2, :],
-                                               device_offset=offset))
-
-            self.events.append(cl.enqueue_copy(cl_queue, self.py, 
-                                               beam_array[3, :],
-                                               device_offset=offset))
-
-            self.events.append(cl.enqueue_copy(cl_queue, self.theta, 
-                                               beam_array[4, :],
-                                               device_offset=offset))
-
-            self.events.append(cl.enqueue_copy(cl_queue, self.gamma, 
-                                               beam_array[5, :],
-                                               device_offset=offset))
-
+        if concatenated_array.shape[1]:
+            self.x[old_len:self.len]     = concatenated_array[0, :].astype(cl_ftype)
+            self.px[old_len:self.len]    = concatenated_array[1, :].astype(cl_ftype)
+            self.y[old_len:self.len]     = concatenated_array[2, :].astype(cl_ftype)
+            self.py[old_len:self.len]    = concatenated_array[3, :].astype(cl_ftype)
+            self.theta[old_len:self.len] = concatenated_array[4, :].astype(cl_ftype)
+            self.gamma[old_len:self.len] = concatenated_array[5, :].astype(cl_ftype)
 
     def resize(self, size):
         '''
@@ -361,21 +301,21 @@ class Beam(object):
         if size < self.len:
             self.len = size
         elif size > self.size:
-            mf = cl.mem_flags
-            x = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
-            px = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
-            y = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
-            py = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
-            theta = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
-            gamma = cl.Buffer(cl_ctx, mf.READ_WRITE, size=size*cl_ftype_nbytes)
+            x     = cl_array.empty(cl_queue, (size,), cl_ftype, allocator=self.allocator) 
+            px    = cl_array.empty(cl_queue, (size,), cl_ftype, allocator=self.allocator) 
+            y     = cl_array.empty(cl_queue, (size,), cl_ftype, allocator=self.allocator) 
+            py    = cl_array.empty(cl_queue, (size,), cl_ftype, allocator=self.allocator)
+            theta = cl_array.empty(cl_queue, (size,), cl_ftype, allocator=self.allocator)
+            gamma = cl_array.empty(cl_queue, (size,), cl_ftype, allocator=self.allocator)
        
             self.wait()
-            self.events.append(cl.enqueue_copy(cl_queue, x, self.x))
-            self.events.append(cl.enqueue_copy(cl_queue, px, self.px))
-            self.events.append(cl.enqueue_copy(cl_queue, y, self.y))
-            self.events.append(cl.enqueue_copy(cl_queue, py, self.py))
-            self.events.append(cl.enqueue_copy(cl_queue, theta, self.theta))
-            self.events.append(cl.enqueue_copy(cl_queue, gamma, self.gamma))
+
+            x[:self.len]     = self.x[:self.len]
+            px[:self.len]    = self.px[:self.len]
+            y[:self.len]     = self.y[:self.len]
+            py[:self.len]    = self.py[:self.len]
+            theta[:self.len] = self.theta[:self.len]
+            gamma[:self.len] = self.gamma[:self.len]
 
             self.px = px
             self.x = x
@@ -385,19 +325,65 @@ class Beam(object):
             self.gamma = gamma
             self.size = size
 
-    def sort_longitudinal(self, slice_len):
+    def sort_longitudinal(self, 
+                          slice_len, 
+                          long_shift = 0.0, 
+                          cutoff_bin = -(2**31)):
         '''
             Sort the beam longitudinally, using a discretization of 'slice_len'
         '''
-        pass
+        (sorted_arr, 
+         event) = self.longitudinal_sort_kernel(self.x,
+                                                self.px,
+                                                self.y,
+                                                self.py,
+                                                self.theta,
+                                                self.gamma,
+                                                cl_ftype(1.0/slice_len),
+                                                **{"allocator" : self.allocator})
 
-    def sort_longitudinal_traverse(self, slice_len, traverse_len, traverse_bins):
+        self.events.append(event)
+       
+        self.x = sorted_arr["x"]
+        self.px = sorted_arr["px"]
+        self.y = sorted_arr["y"]
+        self.py = sorted_arr["py"]
+        self.theta = sorted_arr["theta"]
+        self.gamma = sorted_arr["gamma"]
+        self.size = self.len
+
+    def sort_longitudinal_traverse(self, 
+                                  slice_len, 
+                                  traverse_len, 
+                                  traverse_bins, 
+                                  long_shift = 0.0, 
+                                  cutoff_bin = -(2**31)):
         '''
             Sort the beam. The longitudinal discretization is 'slice_len',
             the traversal discretization is 'traverse_len'. The number of traversal bins
             is 'traverse bins'. 
         '''
-        pass
+        (sorted_arr, 
+         event) = self.longitudinal_traverse_sort_kernel(self.x,
+                                                         self.px,
+                                                         self.y,
+                                                         self.py,
+                                                         self.theta,
+                                                         self.gamma,
+                                                         cl_ftype(1.0/slice_len),
+                                                         cl_ftype(1.0/traverse_len),
+                                                         np.int32(bins),
+                                                        **{"allocator" : self.allocator})
+
+        self.events.append(event)
+
+        self.x = sorted_arr["x"]
+        self.px = sorted_arr["px"]
+        self.y = sorted_arr["y"]
+        self.py = sorted_arr["py"]
+        self.theta = sorted_arr["theta"]
+        self.gamma = sorted_arr["gamma"]
+        self.size = self.len
 
     @classmethod
     def initialize(cls):
@@ -406,13 +392,13 @@ class Beam(object):
         '''
         cls.program = cl.Program(cl_ctx, F(cls.KERNEL)).build()
         cls.longitudinal_sort_kernel = RadixSort(cl_ctx,
-                                                 F("""FLOAT_TYPE* x, 
-                                                      FLOAT_TYPE* px,
-                                                      FLOAT_TYPE* y,
-                                                      FLOAT_TYPE* py,
-                                                      FLOAT_TYPE* theta,
-                                                      FLOAT_TYPE* gamma,
-                                                      FLOAT_TYPE  inv_slice_len"""),
+                                                 [VectorArg(cl_ftype, "x"), 
+                                                  VectorArg(cl_ftype, "px"),
+                                                  VectorArg(cl_ftype, "y"),
+                                                  VectorArg(cl_ftype, "py"),
+                                                  VectorArg(cl_ftype, "theta"),
+                                                  VectorArg(cl_ftype, "gamma"),
+                                                  ScalarArg(cl_ftype, "inv_slice_len")],
                                                  key_expr="(int) floor(theta[i]*inv_slice_len)",
                                                  sort_arg_names=["x", "px", "y", "py", "theta", "gamma"],
                                                  key_dtype=np.int32)
@@ -439,10 +425,12 @@ class Beam(object):
                                          int xbin = (int) floor(xnorm * inv_traverse_len);
                                          int ybin = (int) floor(ynorm * inv_traverse_len);
                                          int zbin = (int) floor(theta*inv_slice_len);
-                                         xbin = xbin >= 0 ? xbin : 0;
-                                         ybin = ybin >= 0 ? ybin : 0;
-                                         xbin = xbin < bins ? xbin : bins-1;
-                                         ybin = ybin < bins ? ybin : bins-1;
+
+                                         if ((xbin < 0) || (xbin >= bins) || (ybin < 0) || (ybin >= bins)) {
+                                            xbin = 0;
+                                            ybin = 0;
+
+                                         }
 
                                          return xbin+bins*(ybin+bins*zbin);
                             }
@@ -453,15 +441,15 @@ class Beam(object):
                 super().__init__(*argl, **new_argd)
         
         cls.longitudinal_traverse_sort_kernel = RadixSort(cl_ctx,
-                                                          F("""FLOAT_TYPE* x, 
-                                                               FLOAT_TYPE* px,
-                                                               FLOAT_TYPE* y,
-                                                               FLOAT_TYPE* py,
-                                                               FLOAT_TYPE* theta,
-                                                               FLOAT_TYPE* gamma,
-                                                               FLOAT_TYPE  inv_slice_len,
-                                                               FLOAT_TYPE  inv_traverse_len,
-                                                               int bins"""),
+                                                          [VectorArg(cl_ftype, "x"), 
+                                                           VectorArg(cl_ftype, "px"),
+                                                           VectorArg(cl_ftype, "y"),
+                                                           VectorArg(cl_ftype, "py"),
+                                                           VectorArg(cl_ftype, "theta"),
+                                                           VectorArg(cl_ftype, "gamma"),
+                                                           ScalarArg(cl_ftype, "inv_slice_len"),
+                                                           ScalarArg(cl_ftype, "inv_traverse_len"),
+                                                           ScalarArg(np.int32, "bins")],
                                                            key_expr="sort_fun(x[i],y[i],theta[i], inv_slice_len, inv_traverse_len, bins)",
                                                            sort_arg_names=["x", "px", "y", "py", "theta", "gamma"],
                                                            scan_kernel = LongitudinalTraverseScanKernel,

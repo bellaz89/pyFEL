@@ -178,9 +178,9 @@ class TensorTransform(BeamTransform):
         if self.flags != 0:
             event = self.program.tensor_optic_sparse(cl_queue, (len(beam),),
                                              None,
-                                             beam.x, beam.px,
-                                             beam.y, beam.py,
-                                             beam.theta, beam.gamma,
+                                             beam.x.data, beam.px.data,
+                                             beam.y.data, beam.py.data,
+                                             beam.theta.data, beam.gamma.data,
                                              self.device_values,
                                              self.device_indices,
                                              np.uint32(self.elements),

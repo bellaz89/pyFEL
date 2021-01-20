@@ -48,7 +48,7 @@ def test_tensor():
     assert tens_transform.flags == 0x00000FFF
     tens_transform.transform(beam_dev)
     beam_host = tensors_mul(tensors, beam_host)
-    assert np.allclose(beam_dev.as_numpy(), beam_host, **cl_tol)
+    assert np.allclose(beam_dev[:], beam_host, **cl_tol)
 
     beam_dev, beam_host = get_random_beam(BEAM_SIZE)
     random = Random(SEED)
@@ -66,7 +66,7 @@ def test_tensor():
     assert tens_transform.flags == 0x0000FFF
     tens_transform.transform(beam_dev)
     beam_host = tensors_mul(tensors, beam_host)
-    assert np.allclose(beam_dev.as_numpy(), beam_host, **cl_tol)
+    assert np.allclose(beam_dev[:], beam_host, **cl_tol)
 
     beam_dev, beam_host = get_random_beam(BEAM_SIZE)
     random = Random(SEED)
@@ -78,7 +78,7 @@ def test_tensor():
     tens_transform = TensorTransform(tensors)
     tens_transform.transform(beam_dev)
     beam_host = tensors_mul(tensors, beam_host)
-    assert np.allclose(beam_dev.as_numpy(), beam_host, **cl_tol)
+    assert np.allclose(beam_dev[:], beam_host, **cl_tol)
 
     beam_dev, beam_host = get_random_beam(BEAM_SIZE)
     random = Random(SEED)
@@ -94,7 +94,7 @@ def test_tensor():
     tens_transform = TensorTransform(tensors)
     tens_transform.transform(beam_dev)
     beam_host = tensors_mul(tensors, beam_host)
-    assert np.allclose(beam_dev.as_numpy(), beam_host, **cl_tol)
+    assert np.allclose(beam_dev[:], beam_host, **cl_tol)
 
     beam_dev, beam_host = get_random_beam(BEAM_SIZE)
     random = Random(SEED)
@@ -106,5 +106,5 @@ def test_tensor():
 
     tens_transform.transform(beam_dev)
     beam_host = tensors_mul(tensors, beam_host)
-    assert np.allclose(beam_dev.as_numpy(), beam_host, **cl_tol)
+    assert np.allclose(beam_dev[:], beam_host, **cl_tol)
 
