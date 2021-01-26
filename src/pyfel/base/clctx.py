@@ -47,6 +47,10 @@ class CLCtx:
             toml.dump(conf, open(conf_path.saveFilePath(), "w"))
 
         cls.ftype_nbytes = cls.ftype(0).nbytes
+        
+        cls.ctype = np.complex128 if cls.ftype == np.float64 else np.complex64
+        cls.ctype_nbytes = conf["cl_ftype"]*2
+
         cls.queue = cl.CommandQueue(cls.ctx)
 
 cl_device = CLCtx.device
@@ -55,6 +59,8 @@ cl_queue = CLCtx.queue
 cl_wavefront = CLCtx.wavefront
 cl_ftype = CLCtx.ftype
 cl_ftype_nbytes = CLCtx.ftype_nbytes
+cl_ctype = CLCtx.ctype 
+cl_ctype_nbytes = CLCtx.ctype_nbytes
 
 def F(source):
     '''

@@ -5,7 +5,6 @@
 import numpy as np
 import pyopencl as cl
 from .beam_transform import BeamTransform
-from .beam import Beam
 from .clctx import cl_queue, cl_ctx, cl_ftype, F 
 
 from pyfel.util.init_class import init_class
